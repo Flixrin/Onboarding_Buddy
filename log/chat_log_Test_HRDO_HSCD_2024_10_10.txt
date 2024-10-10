@@ -1,0 +1,9 @@
+User: test
+Assistant: Hello Test,
+
+Welcome to the HSCD division of the HRDO unit! I noticed your question was "test". If you have any specific questions about the company policy, work hours, benefits, or any other HR-related topics, feel free to ask. You can also reach out to hr@example.com for more detailed inquiries. 
+
+Looking forward to working with you!
+
+Best,
+Bob
