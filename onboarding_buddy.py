@@ -35,7 +35,10 @@ def load_context(file_path):
 
 def generate_response(question, context):
     previous_chat_log = read_previous_day_chat_log(state)
-    prompt = create_prompt(question, context, previous_chat_log)
+    previous_questions_responses = "\n".join(
+        f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages[:-1]  # Exclude the latest question
+    )
+    prompt = create_prompt(question, context, previous_chat_log, previous_questions_responses)
 
     try:
         response = client.chat.completions.create(
@@ -66,11 +69,14 @@ def read_previous_day_chat_log(state):
             return file.read()
     return ""
 
-def create_prompt(question, context, previous_chat_log):
+def create_prompt(question, context, previous_chat_log, previous_questions_responses):
     prompt_parts = []
     
     if previous_chat_log:
         prompt_parts.append(f"Previous Day's Chat Log:\n{previous_chat_log}\n")
+    
+    if previous_questions_responses:
+        prompt_parts.append(f"Previous Questions and Responses:\n{previous_questions_responses}\n")
     
     prompt_parts.append(f"""
     Your name is "Bob" and you are behaving like a friendly Human Resource Group colleague who is welcoming a new joiner to the division. Your role is to answer the question, delimited by <question>, with the context, which is delimited by <context>.
