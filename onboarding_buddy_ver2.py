@@ -1,12 +1,13 @@
 import streamlit as st
-import json
 import os
 from openai import OpenAI
 from datetime import datetime, timedelta
-from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+from langchain.chains import RetrievalQA
+from langchain_openai import ChatOpenAI
+import docx
 
 embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small')
 state = st.session_state
@@ -30,21 +31,44 @@ for key, value in init_values.items():
     init_state(key, value, st.session_state)
 
 # Load context from a PDF file
-def load_context(file_path):
+def load_context(file_path, question):
     try:
-        loader = PyPDFLoader(file_path)
-        pages = loader.load()
+        doc = docx.Document(file_path)
+
+        # Extract text from the Word document
+        full_text = ""
+        for para in doc.paragraphs:
+            full_text += para.text + "\n"
+
         r_splitter = RecursiveCharacterTextSplitter(
             chunk_size=500,
             chunk_overlap=50
         )
-        return r_splitter.split_text(pages)
+
+        # Now split the text, not the list of pages
+        splitted_documents = r_splitter.split_text(full_text)
+        vector_store = Chroma.from_texts(
+            collection_name="context",
+            texts=splitted_documents,
+            embedding=embeddings_model,
+            persist_directory="log", 
+        )
+        qa_chain = RetrievalQA.from_chain_type(
+            ChatOpenAI(model='gpt-4o-mini'),
+            retriever=vector_store.as_retriever(k=20)
+        )
+
+        response = qa_chain.invoke(str(question))
+        
+        return response
+
     except Exception as e:
         st.error(f"Error loading context: {e}")
         return {}
 
 def generate_response(question, context):
-    previous_chat_log = read_previous_day_chat_log(state)
+    previous_chat_log = read_previous_day_chat_log(state, question)
+
     previous_questions_responses = "\n".join(
         f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages[:-1]  # Exclude the latest question
     )
@@ -64,15 +88,7 @@ def generate_response(question, context):
         st.error(f"Error generating response: {e}")
         return "I'm sorry, I couldn't generate a response."
 
-def get_previous_day_filename(state):
-    yesterday = datetime.now() - timedelta(days=1)
-    formatted_date = yesterday.strftime("%Y-%m-%d")
-    name = sanitize_filename(state.name)
-    unit = sanitize_filename(state.unit)
-    division = sanitize_filename(state.division)
-    return f"chat_log_{name}_{unit}_{division}_{formatted_date}.txt"
-
-def read_previous_day_chat_log(state):
+def read_previous_day_chat_log(state, question):
     filename = get_previous_day_filename(state)
     if os.path.exists(filename):
         with open(filename, 'r') as file:
@@ -81,14 +97,27 @@ def read_previous_day_chat_log(state):
             chunk_size=500,
             chunk_overlap=50
         )
-        splitted_documents = r_splitter(chatlog)
-        vector_store = Chroma.from_documents(
+        splitted_documents = r_splitter.split_text(chatlog)
+        vector_store = Chroma.from_texts(
             collection_name="chatlog",
-            documents=splitted_documents,
+            texts=splitted_documents,
             embedding=embeddings_model,
-            persist_directory="/log",  # Where to save data locally, remove if not neccesary
+            persist_directory="log", 
             )
-    return vector_store
+        qa_chain = RetrievalQA.from_chain_type(
+            ChatOpenAI(model='gpt-4o-mini'),
+            retriever=vector_store.as_retriever(k=20)
+        )
+        response = qa_chain.invoke(str(question))
+        return response
+
+def get_previous_day_filename(state):
+    yesterday = datetime.now() - timedelta(days=1)
+    formatted_date = yesterday.strftime("%Y-%m-%d")
+    name = sanitize_filename(state.name)
+    unit = sanitize_filename(state.unit)
+    division = sanitize_filename(state.division)
+    return f"chat_log_{name}_{unit}_{division}_{formatted_date}.txt"
 
 def create_prompt(question, context, previous_chat_log, previous_questions_responses):
     prompt_parts = []
@@ -100,7 +129,7 @@ def create_prompt(question, context, previous_chat_log, previous_questions_respo
         prompt_parts.append(f"Previous Questions and Responses:\n{previous_questions_responses}\n")
     
     prompt_parts.append(f"""
-    You are behaving like a friendly Human Resource Group colleague who is welcoming a new joiner to the division. Your role is to answer the question, delimited by <question>, with the context, which is delimited by <context>.
+    You are called Bob and behaving like a friendly Human Resource Group colleague who is welcoming a new joiner to the division. Your role is to answer the question, delimited by <question>, with the context, which is delimited by <context>.
     <question>
     {question}
     </question>
@@ -166,9 +195,7 @@ def detail_clear(state):
 def main():
     if st.session_state.password_in:
         if st.session_state.details_in:
-            context_file = 'FY2024 HRG Induction Kit.pdf'
-            context = load_context(context_file)
-
+            context_file = 'FY2024 HRG Induction Kit.docx'
             st.title("Onboarding Buddy")
             
             if 'messages' not in st.session_state:
@@ -178,10 +205,13 @@ def main():
                 st.chat_message(message['role']).markdown(message['content'])
 
             question = st.chat_input("What would you like to ask?")
-            
+
             if question:
                 st.session_state.messages.append({"role": "user", "content": question})
                 st.chat_message("user").markdown(question)
+
+                with st.spinner("Retrieving Context"):
+                    context = load_context(context_file,question)
                 
                 with st.spinner("Generating response..."):
                     response = generate_response(question, context)
