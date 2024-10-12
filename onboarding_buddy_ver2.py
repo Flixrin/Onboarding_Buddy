@@ -13,7 +13,7 @@ embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small')
 state = st.session_state
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-if os.path.exists("log\chroma.sqlite3"):
+if not os.path.exists("log\chroma.sqlite3"):
     doc = docx.Document("FY2024 HRG Induction Kit.docx")
 
     # Extract text from the Word document
