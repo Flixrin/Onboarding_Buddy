@@ -13,6 +13,26 @@ embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small')
 state = st.session_state
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
+if os.path.exists("log\chroma.sqlite3"):
+    doc = docx.Document("FY2024 HRG Induction Kit.docx")
+
+    # Extract text from the Word document
+    full_text = ""
+    for para in doc.paragraphs:
+        full_text += para.text + "\n"
+
+    r_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
+    )
+    splitted_context= r_splitter.split_text(full_text)
+    vector_context = Chroma.from_texts(
+        collection_name="context",
+        texts=splitted_context,
+        embedding=embeddings_model,
+        persist_directory="log", 
+    )
+vector_chatlog = None
 # Initialize session state
 def init_state(key, value, state):
     if key not in state:
@@ -28,38 +48,16 @@ init_values = {
 }
 
 for key, value in init_values.items():
-    init_state(key, value, st.session_state)
+    init_state(key, value, state)
 
 # Load context from a PDF file
-def load_context(file_path, question):
+def load_context(question):
     try:
-        doc = docx.Document(file_path)
-
-        # Extract text from the Word document
-        full_text = ""
-        for para in doc.paragraphs:
-            full_text += para.text + "\n"
-
-        r_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50
-        )
-
-        # Now split the text, not the list of pages
-        splitted_documents = r_splitter.split_text(full_text)
-        vector_store = Chroma.from_texts(
-            collection_name="context",
-            texts=splitted_documents,
-            embedding=embeddings_model,
-            persist_directory="log", 
-        )
         qa_chain = RetrievalQA.from_chain_type(
             ChatOpenAI(model='gpt-4o-mini'),
-            retriever=vector_store.as_retriever(k=20)
+            retriever=vector_context.as_retriever(k=20)
         )
-
         response = qa_chain.invoke(str(question))
-        
         return response
 
     except Exception as e:
@@ -67,10 +65,10 @@ def load_context(file_path, question):
         return {}
 
 def generate_response(question, context):
-    previous_chat_log = read_previous_day_chat_log(state, question)
+    previous_chat_log = read_previous_day_chat_log(state)
 
     previous_questions_responses = "\n".join(
-        f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages[:-1]  # Exclude the latest question
+        f"{msg['role']}: {msg['content']}" for msg in state.messages[:-1]  # Exclude the latest question
     )
     prompt = create_prompt(question, context, previous_chat_log, previous_questions_responses)
 
@@ -88,28 +86,12 @@ def generate_response(question, context):
         st.error(f"Error generating response: {e}")
         return "I'm sorry, I couldn't generate a response."
 
-def read_previous_day_chat_log(state, question):
+def read_previous_day_chat_log(state):
     filename = get_previous_day_filename(state)
     if os.path.exists(filename):
         with open(filename, 'r') as file:
-            chatlog = file.read()
-        r_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50
-        )
-        splitted_documents = r_splitter.split_text(chatlog)
-        vector_store = Chroma.from_texts(
-            collection_name="chatlog",
-            texts=splitted_documents,
-            embedding=embeddings_model,
-            persist_directory="log", 
-            )
-        qa_chain = RetrievalQA.from_chain_type(
-            ChatOpenAI(model='gpt-4o-mini'),
-            retriever=vector_store.as_retriever(k=20)
-        )
-        response = qa_chain.invoke(str(question))
-        return response
+            return file.read()
+    return ""
 
 def get_previous_day_filename(state):
     yesterday = datetime.now() - timedelta(days=1)
@@ -137,13 +119,13 @@ def create_prompt(question, context, previous_chat_log, previous_questions_respo
     {context}
     </context>
     <name>
-    {st.session_state.name}
+    {state.name}
     </name>
     <unit>
-    {st.session_state.unit}
+    {state.unit}
     </unit>
     <division>
-    {st.session_state.division}
+    {state.division}
     </division>
 
     Answer the question posted by the user above, which is delimited by <question> tag with the context, which is delimited by <context> tag. You must respond by addressing them by name, which is delimited by <name> tag, and their unit, which is delimited by <unit> tag.
@@ -193,52 +175,65 @@ def detail_clear(state):
 
 # Streamlit frontend
 def main():
-    if st.session_state.password_in:
-        if st.session_state.details_in:
-            context_file = 'FY2024 HRG Induction Kit.docx'
+    if state.password_in:
+        if state.details_in:
+        
             st.title("Onboarding Buddy")
             
-            if 'messages' not in st.session_state:
-                st.session_state.messages = []
+            if 'messages' not in state:
+                state.messages = []
 
-            for message in st.session_state.messages:
+            for message in state.messages:
                 st.chat_message(message['role']).markdown(message['content'])
 
             question = st.chat_input("What would you like to ask?")
 
             if question:
-                st.session_state.messages.append({"role": "user", "content": question})
+                state.messages.append({"role": "user", "content": question})
                 st.chat_message("user").markdown(question)
 
                 with st.spinner("Retrieving Context"):
-                    context = load_context(context_file,question)
+                    context = load_context(question)
                 
                 with st.spinner("Generating response..."):
                     response = generate_response(question, context)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                state.messages.append({"role": "assistant", "content": response})
                 st.chat_message("assistant").markdown(response)
 
                 # Save user question and assistant response to the chat log
                 save_chat_to_file(state, f"User: {question}")
                 save_chat_to_file(state, f"Assistant: {response}")
-            st.button("Go Back", on_click=detail_reset, args=(st.session_state,))
+            st.button("Go Back", on_click=detail_reset, args=(state,))
         else:
             st.title("Onboarding Buddy")
-            st.session_state.name = st.text_input("Enter your name:", value=st.session_state.name)
-            st.session_state.unit = st.text_input("Enter your unit:", value=st.session_state.unit)
-            st.session_state.division = st.text_input("Enter your division:", value=st.session_state.division)
+            state.name = st.text_input("Enter your name:", value=state.name)
+            state.unit = st.text_input("Enter your unit:", value=state.unit)
+            state.division = st.text_input("Enter your division:", value=state.division)
+
+            if state.name != "" and state.unit != "" and state.division!= "":
+                filename = get_previous_day_filename(state)
+                if os.path.exists(filename):
+                    with open(filename, 'r') as file:
+                        chatlog = file.read()
+                    splitted_chatlog = r_splitter.split_text(chatlog)
+                    vector_chatlog = Chroma.from_texts(
+                        collection_name="chatlog",
+                        texts=splitted_chatlog,
+                        embedding=embeddings_model,
+                        persist_directory="log", 
+                        )
 
             columns = st.columns(6)
             with columns[0]:
-                if not st.session_state.details_in and st.button("Submit", on_click=detail_check, args=(st.session_state,)):
+                if not state.details_in and st.button("Submit", on_click=detail_check, args=(state,)):
                     st.error("Please fill in all fields!")
 
             with columns[5]:
-                st.button("Clear", on_click=detail_clear, args=(st.session_state,))
+                st.button("Clear", on_click=detail_clear, args=(state,))
     else:
-        st.session_state.password = st.text_input("Enter password to access the app:", type="password")
+        state.password = st.text_input("Enter password to access the app:", type="password")
         
-        if not st.session_state.password_in and st.button("Enter", on_click=password_check, args=(st.session_state,)):
+        if not state.password_in and st.button("Enter", on_click=password_check, args=(state,)):
             st.error("Incorrect password!")
 
 if __name__ == "__main__":
