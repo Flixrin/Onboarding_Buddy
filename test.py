@@ -8,31 +8,12 @@ from langchain_openai import OpenAIEmbeddings
 from langchain.chains import RetrievalQA
 from langchain_openai import ChatOpenAI
 import docx
+import shutil
 
 embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small')
 state = st.session_state
 client = OpenAI(api_key=st.secrets["openai_api_key"])
 
-if not os.path.exists("log\chroma.sqlite3"):
-    doc = docx.Document("FY2024 HRG Induction Kit.docx")
-
-    # Extract text from the Word document
-    full_text = ""
-    for para in doc.paragraphs:
-        full_text += para.text + "\n"
-
-    r_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50
-    )
-    splitted_context= r_splitter.split_text(full_text)
-    vector_context = Chroma.from_texts(
-        collection_name="context",
-        texts=splitted_context,
-        embedding=embeddings_model,
-        persist_directory="log", 
-    )
-vector_chatlog = None
 # Initialize session state
 def init_state(key, value, state):
     if key not in state:
@@ -44,18 +25,44 @@ init_values = {
     'name': "",
     'unit': "",
     'division': "",
-    'password': ""
+    'password': "",
+    'startno' : 0,
+    'vector': ""
 }
 
 for key, value in init_values.items():
     init_state(key, value, state)
 
+if state.startno == 0:
+    if os.path.exists("Database"):
+        shutil.rmtree("Database")
+    os.makedirs("Database", exist_ok=True) 
+    # Extract text from the Word document
+    doc = docx.Document("FY2024 HRG Induction Kit.docx")
+    full_text = ""
+    for para in doc.paragraphs:
+        full_text += para.text + "\n"
+    state.startno = 1
+
+    r_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
+    )
+    splitted_context= r_splitter.split_text(full_text)
+    state.vector = Chroma.from_texts(
+        collection_name="context",
+        texts=splitted_context,
+        embedding=embeddings_model,
+        persist_directory="Database", 
+    )
+
 # Load context from a PDF file
 def load_context(question):
     try:
+        
         qa_chain = RetrievalQA.from_chain_type(
             ChatOpenAI(model='gpt-4o-mini'),
-            retriever=vector_context.as_retriever(k=20)
+            retriever=state.vector.as_retriever(k=20)
         )
         response = qa_chain.invoke(str(question))
         return response
@@ -209,19 +216,6 @@ def main():
             state.name = st.text_input("Enter your name:", value=state.name)
             state.unit = st.text_input("Enter your unit:", value=state.unit)
             state.division = st.text_input("Enter your division:", value=state.division)
-
-            if state.name != "" and state.unit != "" and state.division!= "":
-                filename = get_previous_day_filename(state)
-                if os.path.exists(filename):
-                    with open(filename, 'r') as file:
-                        chatlog = file.read()
-                    splitted_chatlog = r_splitter.split_text(chatlog)
-                    vector_chatlog = Chroma.from_texts(
-                        collection_name="chatlog",
-                        texts=splitted_chatlog,
-                        embedding=embeddings_model,
-                        persist_directory="log", 
-                        )
 
             columns = st.columns(6)
             with columns[0]:
