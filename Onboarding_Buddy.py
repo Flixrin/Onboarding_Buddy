@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import requests
 from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
@@ -38,7 +39,15 @@ if state.startno == 0:
         shutil.rmtree("Database")
     os.makedirs("Database", exist_ok=True) 
     # Extract text from the Word document
-    doc = docx.Document("FY2024 HRG Induction Kit.docx")
+    # Download the DOCX file from GitHub
+    docx_url = "https://github.com/Flixrin/Onboarding_Buddy/raw/refs/heads/main/FY2024%20HRG%20Induction%20Kit.docx"
+    response = requests.get(docx_url)
+    # Save the downloaded file as temp.docx for processing
+    with open("temp.docx", "wb") as f:
+        f.write(response.content)
+
+    # Load the DOCX content
+    doc = docx.Document("temp.docx")
     full_text = ""
     for para in doc.paragraphs:
         full_text += para.text + "\n"
