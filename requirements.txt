@@ -88,3 +88,4 @@ bcrypt==4.2.0
 build==1.2.2.post1 
 chroma-hnswlib==0.7.6 
 chromadb==0.5.13 
+requests
