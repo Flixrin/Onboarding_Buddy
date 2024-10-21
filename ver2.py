@@ -71,12 +71,10 @@ def load_context(question):
         return {}
 
 def generate_response(question, context):
-    previous_chat_log = read_previous_day_chat_log(state)
-
     previous_questions_responses = "\n".join(
         f"{msg['role']}: {msg['content']}" for msg in state.messages[:-1]  # Exclude the latest question
     )
-    prompt = create_prompt(question, context, previous_chat_log, previous_questions_responses)
+    prompt = create_prompt(question, context, previous_questions_responses)
 
     try:
         response = client.chat.completions.create(
@@ -171,7 +169,8 @@ def main():
             
             if 'messages' not in state:
                 state.messages = []
-                st.chat_message("assistant").markdown(f"""Hello, {state.name}! Welcome to {state.unit}! I am here to assist you answer some questions that you might have to get you started in {state.unit} or {state.division}. For example, you can ask matters regarding work hours/organisational structure.""")
+            
+            st.chat_message("assistant").markdown(f"""Hello, {state.name}! Welcome to {state.unit}! I am here to assist you answer some questions that you might have to get you started in {state.unit} or {state.division}. For example, you can ask matters regarding work hours/organisational structure.""")
 
             for message in state.messages:
                 st.chat_message(message['role']).markdown(message['content'])
