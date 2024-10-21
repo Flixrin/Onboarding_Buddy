@@ -14,7 +14,6 @@ API_KEY = st.secrets["openai_api_key"]
 client = OpenAI(api_key = API_KEY)
 embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small',api_key = API_KEY)
 
-
 # Initialize session state
 def init_state(key, value, state):
     if key not in state:
