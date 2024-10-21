@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 from openai import OpenAI
-from datetime import datetime, timedelta
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
@@ -74,12 +73,10 @@ def load_context(question):
         return {}
 
 def generate_response(question, context):
-    previous_chat_log = read_previous_day_chat_log(state)
-
     previous_questions_responses = "\n".join(
         f"{msg['role']}: {msg['content']}" for msg in state.messages[:-1]  # Exclude the latest question
     )
-    prompt = create_prompt(question, context, previous_chat_log, previous_questions_responses)
+    prompt = create_prompt(question, context, previous_questions_responses)
 
     try:
         response = client.chat.completions.create(
@@ -95,26 +92,8 @@ def generate_response(question, context):
         st.error(f"Error generating response: {e}")
         return "I'm sorry, I couldn't generate a response."
 
-def read_previous_day_chat_log(state):
-    filename = get_previous_day_filename(state)
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            return file.read()
-    return ""
-
-def get_previous_day_filename(state):
-    yesterday = datetime.now() - timedelta(days=1)
-    formatted_date = yesterday.strftime("%Y-%m-%d")
-    name = sanitize_filename(state.name)
-    unit = sanitize_filename(state.unit)
-    division = sanitize_filename(state.division)
-    return f"chat_log_{name}_{unit}_{division}_{formatted_date}.txt"
-
-def create_prompt(question, context, previous_chat_log, previous_questions_responses):
+def create_prompt(question, context, previous_questions_responses):
     prompt_parts = []
-    
-    if previous_chat_log:
-        prompt_parts.append(f"Previous Day's Chat Log:\n{previous_chat_log}\n")
     
     if previous_questions_responses:
         prompt_parts.append(f"Previous Questions and Responses:\n{previous_questions_responses}\n")
@@ -148,25 +127,6 @@ def create_prompt(question, context, previous_chat_log, previous_questions_respo
 def sanitize_filename(s):
     return "".join(c for c in s if c.isalnum() or c in (" ", "_")).rstrip()
 
-def get_chat_log_filename(state):
-    name = sanitize_filename(state.name)
-    unit = sanitize_filename(state.unit)
-    division = sanitize_filename(state.division)
-    today = datetime.now().strftime("%Y_%m_%d")
-    log_dir = "log"
-    os.makedirs(log_dir, exist_ok=True)  # Create log directory if it doesn't exist
-    return os.path.join(log_dir, f"chat_log_{name}_{unit}_{division}_{today}.txt")
-
-def save_chat_to_file(state, message):
-    filename = get_chat_log_filename(state)
-    
-    if not os.path.exists(filename):
-        with open(filename, 'w') as file:
-            pass  # Create an empty file
-    
-    with open(filename, 'a') as file:
-        file.write(message + "\n")
-
 def password_check(state):
     state.password_in = (state.password == st.secrets["streamlit_password"])
     state.password = ""
@@ -182,6 +142,26 @@ def detail_clear(state):
     state.unit = ""
     state.division = ""
 
+def pageAboutus():
+    st.title("About Us")
+
+def pageMethodology():
+    st.title("Methodology")
+
+def pageDetailEntry():
+    st.title("Onboarding Buddy")
+    state.name = st.text_input("Enter your name:", value=state.name)
+    state.unit = st.text_input("Enter your unit:", value=state.unit)
+    state.division = st.text_input("Enter your division:", value=state.division)
+
+    columns = st.columns(6)
+    with columns[0]:
+        if not state.details_in and st.button("Submit", on_click=detail_check, args=(state,)):
+            st.error("Please fill in all fields!")
+
+    with columns[5]:
+        st.button("Clear", on_click=detail_clear, args=(state,))
+
 # Streamlit frontend
 def main():
     if state.password_in:
@@ -191,6 +171,8 @@ def main():
             
             if 'messages' not in state:
                 state.messages = []
+            
+            st.chat_message("assistant").markdown(f"""Hello, {state.name}! Welcome to {state.unit}! I am here to assist you answer some questions that you might have to get you started in {state.unit} or {state.division}. For example, you can ask matters regarding work hours/organisational structure.""")
 
             for message in state.messages:
                 st.chat_message(message['role']).markdown(message['content'])
@@ -209,23 +191,18 @@ def main():
                 state.messages.append({"role": "assistant", "content": response})
                 st.chat_message("assistant").markdown(response)
 
-                # Save user question and assistant response to the chat log
-                save_chat_to_file(state, f"User: {question}")
-                save_chat_to_file(state, f"Assistant: {response}")
             st.button("Go Back", on_click=detail_reset, args=(state,))
         else:
-            st.title("Onboarding Buddy")
-            state.name = st.text_input("Enter your name:", value=state.name)
-            state.unit = st.text_input("Enter your unit:", value=state.unit)
-            state.division = st.text_input("Enter your division:", value=state.division)
+            page = st.navigation([
+                st.Page(pageAboutus, title="About Us"),
+                st.Page(pageMethodology, title="Methodology"),
+                st.Page(pageDetailEntry, title="Detail Entry")
+            ])
 
-            columns = st.columns(6)
-            with columns[0]:
-                if not state.details_in and st.button("Submit", on_click=detail_check, args=(state,)):
-                    st.error("Please fill in all fields!")
-
-            with columns[5]:
-                st.button("Clear", on_click=detail_clear, args=(state,))
+            if page:
+                page.run()
+            else:
+                st.error("No page was selected.")
     else:
         state.password = st.text_input("Enter password to access the app:", type="password")
         
