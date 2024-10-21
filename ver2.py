@@ -10,9 +10,11 @@ from langchain_openai import ChatOpenAI
 import docx
 import shutil
 
-embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small')
 state = st.session_state
-client = OpenAI(api_key=st.secrets["openai_api_key"])
+API_KEY = st.secrets["openai_api_key"]
+client = OpenAI(api_key = API_KEY)
+embeddings_model = OpenAIEmbeddings(model='text-embedding-3-small',api_key = API_KEY)
+
 
 # Initialize session state
 def init_state(key, value, state):
@@ -61,7 +63,7 @@ def load_context(question):
     try:
         
         qa_chain = RetrievalQA.from_chain_type(
-            ChatOpenAI(model='gpt-4o-mini'),
+            ChatOpenAI(model='gpt-4o-mini', api_key= API_KEY),
             retriever=state.vector.as_retriever(k=20)
         )
         response = qa_chain.invoke(str(question))
@@ -81,7 +83,7 @@ def generate_response(question, context):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",  # Use the correct model
+            model="gpt-4o-mini",  # Use the correct model
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
             n=1,
